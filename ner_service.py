@@ -6,32 +6,34 @@ import re
 app = FastAPI()
 nlp = spacy.load("en_core_web_sm")
 
-# EntityRuler
 ruler = nlp.add_pipe("entity_ruler", before="ner", config={"overwrite_ents": False})
 
 TITLE_WORDS = [
-    "Head", "Senior", "Vice", "President", "Chief", "Representative", "Manager",
-    "Director", "Engineer", "Consultant", "Officer", "Founder", "Executive",
-    "Coordinator", "Lecturer", "Professor", "Analyst", "Advisor", "Specialist",
-    "Assistant", "Associate", "CEO", "CTO", "CFO", "COO", "Dean", "Researcher"
+    "Head","Senior","Vice","President","Chief","Representative","Manager",
+    "Director","Engineer","Consultant","Officer","Founder","Executive",
+    "Coordinator","Lecturer","Professor","Analyst","Advisor","Specialist",
+    "Assistant","Associate","CEO","CTO","CFO","COO","Dean","Researcher"
+]
+ORG_WORDS = [
+    "bank","university","department","faculty","division","institute",
+    "group","holdings","company","corp","corporation","inc","ltd","studio",
+    "agency","solutions","services","enterprise","enterprises"
 ]
 
 title_patterns = [{"label": "TITLE", "pattern": [{"LOWER": w.lower()}]} for w in TITLE_WORDS]
-title_patterns += [
-    {"label": "TITLE", "pattern": [{"LOWER": "chief"}, {"LOWER": "representative"}]},
-    {"label": "TITLE", "pattern": [{"LOWER": "senior"}, {"LOWER": "vice"}, {"LOWER": "president"}]},
-]
+org_patterns = [{"label": "ORG", "pattern": [{"IS_ALPHA": True, "OP": "+"}, {"LOWER": ending}]} for ending in ORG_WORDS]
 
-org_endings = ["bank", "university", "department", "faculty", "division", "institute",
-               "group", "holdings", "company", "co.", "co", "ltd.", "ltd", "corp",
-               "corporation", "inc", "studio", "agency", "solutions", "services",
-               "enterprise", "enterprises"]
-org_patterns = [{"label": "ORG", "pattern": [{"IS_ALPHA": True, "OP": "+"}, {"LOWER": ending}]} for ending in org_endings]
-
-# FULLNAME: 2–3 TitleCase tokens (priority over PERSON)
+# Looser FULLNAME detection
 fullname_patterns = [
-    {"label": "FULLNAME", "pattern": [{"IS_TITLE": True, "IS_ALPHA": True}, {"IS_TITLE": True, "IS_ALPHA": True}]},
-    {"label": "FULLNAME", "pattern": [{"IS_TITLE": True, "IS_ALPHA": True}, {"IS_TITLE": True, "IS_ALPHA": True}, {"IS_TITLE": True, "IS_ALPHA": True}]}
+    {"label": "FULLNAME", "pattern": [
+        {"IS_ALPHA": True, "IS_TITLE": True, "LENGTH": {">": 2}},
+        {"IS_ALPHA": True, "IS_TITLE": True, "LENGTH": {">": 2}}
+    ]},
+    {"label": "FULLNAME", "pattern": [
+        {"IS_ALPHA": True, "IS_TITLE": True, "LENGTH": {">": 2}},
+        {"IS_ALPHA": True, "IS_TITLE": True, "LENGTH": {">": 2}},
+        {"IS_ALPHA": True, "IS_TITLE": True, "LENGTH": {">": 2}}
+    ]}
 ]
 
 ignore_patterns = [
@@ -53,6 +55,14 @@ def is_bad_span(text: str) -> bool:
         return True
     if re.search(r"\d", t):
         return True
+    # drop things with no vowels (likely garbage like "V Y", "L A")
+    if not re.search(r"[aeiouAEIOU]", t):
+        return True
+    # drop if it looks like a title or org keyword
+    if any(word.lower() in TITLE_WORDS for word in t.split()):
+        return True
+    if any(word.lower() in ORG_WORDS for word in t.split()):
+        return True
     return False
 
 @app.post("/ner")
@@ -61,12 +71,20 @@ def analyze_text(req: TextRequest):
     entities = []
 
     for ent in doc.ents:
-        if ent.label_ == "IGNORE":
+        lbl = ent.label_
+        txt = ent.text.strip()
+        if lbl == "IGNORE":
             continue
-        if ent.label_ not in ["FULLNAME", "PERSON", "ORG", "TITLE"]:
+        if lbl not in ["FULLNAME", "PERSON", "ORG", "TITLE"]:
             continue
-        if is_bad_span(ent.text):
+        if is_bad_span(txt):
             continue
-        entities.append({"text": ent.text.strip(), "label": ent.label_})
+        entities.append({"text": txt, "label": lbl})
+
+    # If multiple FULLNAMEs, keep the longest one
+    fullnames = [e for e in entities if e["label"] == "FULLNAME"]
+    if len(fullnames) > 1:
+        longest = max(fullnames, key=lambda e: len(e["text"].split()))
+        entities = [e for e in entities if e["label"] != "FULLNAME"] + [longest]
 
     return {"entities": entities}
