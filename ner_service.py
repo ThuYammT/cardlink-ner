@@ -8,9 +8,24 @@ nlp = spacy.load("en_core_web_sm")
 
 ruler = nlp.add_pipe("entity_ruler", before="ner", config={"overwrite_ents": False})
 
-TITLE_WORDS = [...]
-ORG_WORDS = [...]
-ADDRESS_WORDS = [...]
+TITLE_WORDS = [
+    "head","senior","vice","president","chief","representative","manager",
+    "director","engineer","consultant","officer","founder","executive",
+    "coordinator","lecturer","professor","analyst","advisor","specialist",
+    "assistant","associate","ceo","cto","cfo","coo","dean","researcher"
+]
+
+ORG_WORDS = [
+    "bank","university","department","faculty","division","institute",
+    "group","holdings","company","corp","corporation","inc","ltd","studio",
+    "agency","solutions","services","enterprise","enterprises"
+]
+
+ADDRESS_WORDS = [
+    "road","rd","soi","street","lane","district","province","bangkok","thailand",
+    "muang","wan","lumpini","center","office","building"
+]
+
 
 # Patterns
 title_patterns = [{"label": "TITLE", "pattern": [{"LOWER": w}]} for w in TITLE_WORDS]
